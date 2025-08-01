@@ -4,8 +4,8 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct MonitorConfig {
-    pub interface: &'static str,
-    pub pcap_filter_expression: &'static str,
+    pub interface: String,
+    pub pcap_filter_expression: String,
 }
 
 impl MonitorConfig {

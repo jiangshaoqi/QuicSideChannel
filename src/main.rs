@@ -48,16 +48,19 @@ fn parse_udp_packet(data: &[u8]) -> Option<(SocketAddr, SocketAddr, &[u8])> {
 fn main() -> Result<()> {
 
     let monitorconfig = MonitorConfig::from_file("monitorconfig")?;
-    let mut capture = Capture::from_device(monitorconfig.interface)
+    let mut capture = Capture::from_device(monitorconfig.interface.as_ref())
         .map_err(|e| anyhow::anyhow!("Failed to create capture device: {}", e))?
         .immediate_mode(true)
         .open()?;
 
-    let _ = capture.filter(monitorconfig.pcap_filter_expression, false);
+    let _ = capture.filter(monitorconfig.pcap_filter_expression.as_ref(), false);
 
     // quinn-proto endpoint setup
     let config = EndpointConfig::default();
+    todo!("set server_config to see if NewConnection works");
     let mut proto_endpoint = Endpoint::new(Arc::new(config), None, false, None);
+
+
 
     while let Ok(packet) = capture.next_packet() {
 
@@ -65,7 +68,7 @@ fn main() -> Result<()> {
                 let now = std::time::Instant::now();
                 let mut response_buf = Vec::new();
                 match proto_endpoint.handle(now, src_addr, None, None, data.into(), &mut response_buf) {
-                    Some(DatagramEvent::NewConnection(incoming)) => {
+                    Some(DatagramEvent::NewConnection(_incoming)) => {
                         println!("New connection");
                         // if self.connections.close.is_none() {
                         //     self.incoming.push_back(incoming);
@@ -75,7 +78,7 @@ fn main() -> Result<()> {
                         //     respond(transmit, &response_buffer, socket);
                         // }
                     }
-                    Some(DatagramEvent::ConnectionEvent(handle, event)) => {
+                    Some(DatagramEvent::ConnectionEvent(_handle, _event)) => {
                         println!("Connection event");
                         // Ignoring errors from dropped connections that haven't yet been cleaned up
                         // received_connection_packet = true;
@@ -86,7 +89,7 @@ fn main() -> Result<()> {
                         //     .unwrap()
                         //     .send(ConnectionEvent::Proto(event));
                     }
-                    Some(DatagramEvent::Response(transmit)) => {
+                    Some(DatagramEvent::Response(_transmit)) => {
                         println!("Response event");
                         // respond(transmit, &response_buffer, socket);
                     }
