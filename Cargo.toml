@@ -8,4 +8,6 @@ anyhow = "1.0.98"
 config = "0.15"
 pcap = "1.0"
 quinn-proto = "0.11.12"
+rcgen = { version = "0.14", features = ["pem", "x509-parser", "crypto"] }
+rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std"] }
 serde = { version = "1.0", features = ["derive"] }

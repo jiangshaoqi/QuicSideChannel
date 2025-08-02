@@ -3,9 +3,13 @@ use std::{net::{IpAddr, Ipv4Addr, SocketAddr}, sync::Arc};
 use anyhow::Result;
 use pcap::Capture;
 use quinn_proto::{DatagramEvent, Endpoint, EndpointConfig};
+use rcgen::CertifiedKey;
+use rustls::pki_types::{self, PrivatePkcs8KeyDer};
+
 
 mod monitorconfig;
 use monitorconfig::MonitorConfig;
+
 
 
 fn parse_udp_packet(data: &[u8]) -> Option<(SocketAddr, SocketAddr, &[u8])> {
@@ -45,6 +49,23 @@ fn parse_udp_packet(data: &[u8]) -> Option<(SocketAddr, SocketAddr, &[u8])> {
 }
 
 
+/// Generate a dummy self-signed certificate, to later pass into the quinn-proto endpoint.
+/// Or quinn-proto endpoint would only enter logic for of response event, which prepare to reply RST
+fn create_dummy_server_config() -> Result<Arc<quinn_proto::ServerConfig>> {
+    // Generate a dummy self-signed certificate for passive monitoring
+    let CertifiedKey { cert, signing_key } = rcgen::generate_simple_self_signed(vec!["monitor.local".into()])?;
+    let cert_der = cert.der().clone();
+    let cert_chain = vec![cert_der];
+
+    let key_pair_der = signing_key.serialize_der();
+    let private_key_der = PrivatePkcs8KeyDer::from(key_pair_der);
+    let private_key = pki_types::PrivateKeyDer::from(private_key_der);
+
+    let server_config = quinn_proto::ServerConfig::with_single_cert(cert_chain, private_key)?;
+    Ok(Arc::new(server_config))
+}
+
+
 fn main() -> Result<()> {
 
     let monitorconfig = MonitorConfig::from_file("monitorconfig")?;
@@ -57,44 +78,46 @@ fn main() -> Result<()> {
 
     // quinn-proto endpoint setup
     let config = EndpointConfig::default();
-    todo!("set server_config to see if NewConnection works");
-    let mut proto_endpoint = Endpoint::new(Arc::new(config), None, false, None);
+    let server_config = create_dummy_server_config()?;
+    let mut proto_endpoint = Endpoint::new(Arc::new(config), Some(server_config), false, None);
 
 
 
     while let Ok(packet) = capture.next_packet() {
 
         if let Some((src_addr, _, data)) = parse_udp_packet(&packet) {
-                let now = std::time::Instant::now();
-                let mut response_buf = Vec::new();
-                match proto_endpoint.handle(now, src_addr, None, None, data.into(), &mut response_buf) {
-                    Some(DatagramEvent::NewConnection(_incoming)) => {
-                        println!("New connection");
-                        // if self.connections.close.is_none() {
-                        //     self.incoming.push_back(incoming);
-                        // } else {
-                        //     let transmit =
-                        //         endpoint.refuse(incoming, &mut response_buffer);
-                        //     respond(transmit, &response_buffer, socket);
-                        // }
-                    }
-                    Some(DatagramEvent::ConnectionEvent(_handle, _event)) => {
-                        println!("Connection event");
-                        // Ignoring errors from dropped connections that haven't yet been cleaned up
-                        // received_connection_packet = true;
-                        // let _ = self
-                        //     .connections
-                        //     .senders
-                        //     .get_mut(&handle)
-                        //     .unwrap()
-                        //     .send(ConnectionEvent::Proto(event));
-                    }
-                    Some(DatagramEvent::Response(_transmit)) => {
-                        println!("Response event");
-                        // respond(transmit, &response_buffer, socket);
-                    }
-                    None => {}
+            let now = std::time::Instant::now();
+            let mut response_buf = Vec::new();
+            match proto_endpoint.handle(now, src_addr, None, None, data.into(), &mut response_buf) {
+                Some(DatagramEvent::NewConnection(incoming)) => {
+                    println!("New connection");
+                    let mut response_accept_buf = Vec::new();
+                    let another_server_config = create_dummy_server_config()?;
+                    // match the application level's incoming.await
+                    let (ch, conn) = proto_endpoint.accept(incoming, now, &mut response_accept_buf, Some(another_server_config))
+                        .map_err(|_| anyhow::anyhow!("Failed to accept new connection"))?;
+                    
+                    
                 }
+
+                Some(DatagramEvent::ConnectionEvent(_handle, _event)) => {
+                    println!("Connection event");
+                    // Ignoring errors from dropped connections that haven't yet been cleaned up
+                    // received_connection_packet = true;
+                    // let _ = self
+                    //     .connections
+                    //     .senders
+                    //     .get_mut(&handle)
+                    //     .unwrap()
+                    //     .send(ConnectionEvent::Proto(event));
+                }
+
+                Some(DatagramEvent::Response(_transmit)) => {
+                    println!("Response event");
+                    // respond(transmit, &response_buffer, socket);
+                }
+                None => {}
+            }
 
         }
     }
